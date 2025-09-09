@@ -8,7 +8,7 @@ import h5py
 import sys,os,glob
 athena_dir = "/users/avjoshi2/athena"
 sys.path.insert(0, os.path.join(athena_dir,'vis/python'))
-import athena_read
+import athena_read # pyright: ignore[reportMissingImports]
 import click
 import multiprocessing as mp
 
@@ -34,7 +34,7 @@ def get_label_dictionary(variables):
       label_dict[variable]=rf'{log_prepend}$v{append_str}$'
     elif "Bcc" in variable:
       append_str = get_dim(variable,"Bcc")
-      label_dict[variable]=rf'{log_prepend}$v{append_str}$'
+      label_dict[variable]=rf'{log_prepend}$B{append_str}$'
     elif "Bmag" in variable:
       label_dict[variable]=rf'{log_prepend}$|B|$'
     elif "beta" in variable:
