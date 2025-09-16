@@ -308,9 +308,9 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
 
   variableNames = "-".join(variables)
   if(remain_coord_range==None):
-    plt_filename = f"{os.path.splitext(ath_file)[0]}_slice_{variableNames}_{str.join('',slice_coords_list)}_{remaining_coord_field}_{loc}.png"
+    plt_filename = f"{os.path.splitext(ath_file)[0]}_panel_{variableNames}_{str.join('',slice_coords_list)}_{remaining_coord_field}_{loc}.png"
   else:
-    plt_filename = f"{os.path.splitext(ath_file)[0]}_slice_{variableNames}_{str.join('',slice_coords_list)}_{np.max(remain_coord_range):.1e}_{remaining_coord_field}_{loc}.png"
+    plt_filename = f"{os.path.splitext(ath_file)[0]}_panel_{variableNames}_{str.join('',slice_coords_list)}_{np.max(remain_coord_range):.1e}_{remaining_coord_field}_{loc}.png"
   
   if output_dir!=None:
     plt_filename = os.path.join(output_dir,os.path.basename(plt_filename))
