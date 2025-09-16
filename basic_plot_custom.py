@@ -356,7 +356,7 @@ def load_slice_and_variables(ath_file,variables,slice_kwargs):
       # adiabatic
       try:
         press_ind = var_list_full.index('press')
-        slice_data[...,ind]=slice_hydro[...,press_ind]/(np.sqrt(slice_data[...,ind])/2)
+        slice_data[...,ind]=slice_hydro[...,press_ind]/(slice_data[...,ind]/2)
       # isothermal
       except Exception as e:
         if ('cs' in slice_kwargs.keys()):
@@ -364,7 +364,7 @@ def load_slice_and_variables(ath_file,variables,slice_kwargs):
         else:
           cs = 0.05
         rho_ind = var_list_full.index('rho')
-        slice_data[...,ind]=cs**2 * slice_hydro[...,rho_ind]/(np.sqrt(slice_data[...,ind])/2)
+        slice_data[...,ind]=cs**2 * slice_hydro[...,rho_ind]/(slice_data[...,ind]/2)
     else:
       print(f"processing {variable} has not yet been implemented! skipping")
   return slice_data,slice_grid,header
