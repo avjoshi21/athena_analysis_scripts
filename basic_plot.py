@@ -108,6 +108,28 @@ def plot_slice(data, ath_file='test',variables="density", slice_coords="x1x2",sl
 
   label_dict = get_label_dictionary(variables)
 
+  # Extract possible per-variable plotting options
+  for key in ['vmin', 'vmax', 'cmap']:
+    plot_dict = kwargs.pop(key, {})
+    if(plot_dict)!={}:
+      # if plot kwarg is a dictionary or a number
+      try:
+        plot_dict = eval(str(plot_dict))
+        if type(plot_dict) != dict:
+          val = plot_dict
+          plot_dict = {var: val for var in variables}
+      # if plot kwarg is a string
+      except NameError:
+        val = plot_dict
+        plot_dict = {var: val for var in variables}
+
+      if key == 'vmin':
+        vmin_dict = plot_dict
+      elif key == 'vmax':
+        vmax_dict = plot_dict
+      elif key == 'cmap':
+        cmap_dict = plot_dict
+
   for ind,variableName in enumerate(variables):
     plt.figure(num=pid,clear=True,figsize=(width,height))
     if ('log' in variableName):
@@ -153,11 +175,26 @@ def plot_slice(data, ath_file='test',variables="density", slice_coords="x1x2",sl
     permute_order = dims
     var_slice = np.transpose(var_slice, axes=np.argsort(permute_order))
     print(f"{variable} max {np.max(var_slice):.2e}, min {np.min(var_slice):.2e}")
+
+    # Determine color scale and colormap for this variable
+    vmin = vmin_dict.get(variableName, None)
+    vmax = vmax_dict.get(variableName, None)
+    cmap = cmap_dict.get(variableName, None)
+
+    # Prepare pcolormesh kwargs for this variable
+    pcolormesh_kwargs = kwargs.copy()
+    if vmin is not None:
+      pcolormesh_kwargs['vmin'] = vmin
+    if vmax is not None:
+      pcolormesh_kwargs['vmax'] = vmax
+    if cmap is not None:
+      pcolormesh_kwargs['cmap'] = cmap
+
     # Plot
     if(log_flag):
-      mesh = plt.pcolormesh(xgrids[0], xgrids[1], np.log10(np.abs(var_slice)), shading='auto', **kwargs)
+      mesh = plt.pcolormesh(xgrids[0], xgrids[1], np.log10(np.abs(var_slice)), shading='auto', **pcolormesh_kwargs)
     else:
-      mesh = plt.pcolormesh(xgrids[0], xgrids[1], var_slice, shading='auto', **kwargs)
+      mesh = plt.pcolormesh(xgrids[0], xgrids[1], var_slice, shading='auto', **pcolormesh_kwargs)
     plt.xlabel(f"{slice_coords_list[0]}{length_scale_label}")
     plt.ylabel(f"{slice_coords_list[1]}{length_scale_label}")
     #plt.colorbar(mesh,label=variableName,pad=0)
