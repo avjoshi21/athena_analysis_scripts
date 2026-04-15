@@ -9,6 +9,7 @@ import sys,os,glob
 athena_dir = "/users/avjoshi2/athena"
 sys.path.insert(0, os.path.join(athena_dir,'vis/python'))
 import click
+import gc
 import multiprocessing as mp
 
 file_path = os.path.realpath(__file__)
@@ -84,7 +85,7 @@ def generate_plot_kwargs_dict(kwargs):
         cmap_dict = plot_dict
   return vmin_dict,vmax_dict,cmap_dict
 
-def plot_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", slice_dim=0,loc=0, remain_coord_range=None, length_scale=1, length_scale_label='',output_dir=None,**kwargs):
+def plot_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", slice_dim=0,loc=0, remain_coord_range=None, length_scale=1, length_scale_label='',output_dir=None,replace=False,**kwargs):
   """
   Plot a 2D slice of a 3D Athena++ HDF5 dataset using cell interface coordinates.
 
@@ -138,8 +139,24 @@ def plot_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", sli
   label_dict = get_label_dictionary(variables)
   vmin_dict,vmax_dict,cmap_dict = generate_plot_kwargs_dict(kwargs)
 
+  slice_coord_dims = list(set(range(3))-{slice_dim})
+  slice_coords_list = [f"x{i+1}" for i in slice_coord_dims]
+  remaining_coord_field=f"x{slice_dim+1}"
+
   for ind,variableName in enumerate(variables):
-    plt.figure(num=pid,clear=True,figsize=(width,height))
+    fig=plt.figure(num=pid,clear=True,figsize=(width,height))
+    if(remain_coord_range==None):
+      plt_filename = f"{os.path.splitext(ath_file)[0]}_slice_{variableName}_{str.join('',slice_coords_list)}_{remaining_coord_field}_{loc}.png"
+    else:
+      plt_filename = f"{os.path.splitext(ath_file)[0]}_slice_{variableName}_{str.join('',slice_coords_list)}_{np.max(remain_coord_range):.1e}_{remaining_coord_field}_{loc}.png"
+
+    if output_dir!=None:
+      plt_filename = os.path.join(output_dir,os.path.basename(plt_filename))
+
+    if os.path.exists(plt_filename) and (not replace):
+      print(f"{plt_filename} already exists! exiting")
+      return
+
     ax = plt.gca()
     if ('log' in variableName):
       variable = variableName.replace('log','')
@@ -171,32 +188,23 @@ def plot_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", sli
         else:
           im=ax.pcolormesh(slice_grid[i,:,0]/length_scale,slice_grid[i,:,1]/length_scale,data_toplot,**pcolormesh_kwargs)
     
-    slice_coord_dims = list(set(range(3))-{slice_dim})
-    slice_coords_list = [f"x{i+1}" for i in slice_coord_dims]
 
     ax.set_xlabel(f"{slice_coords_list[0]}{length_scale_label}")
     ax.set_ylabel(f"{slice_coords_list[1]}{length_scale_label}")
     #plt.colorbar(mesh,label=variableName,pad=0)
     plt.colorbar(im,pad=0)
-    remaining_coord_field=f"x{slice_dim+1}"
     #plt.title(f"{label_dict[variables[ind]]} at {remaining_coord_field} t={time:.2f}")
     ax.set_title(f"{label_dict[variables[ind]]} at t={time:.2f}")
     ax.set_xlim(np.array(remain_coord_range[:2])/length_scale)
     ax.set_ylim(np.array(remain_coord_range[2:])/length_scale)
     plt.subplots_adjust(left=0,right=1,bottom=0,top=1)
-    if(remain_coord_range==None):
-      plt_filename = f"{os.path.splitext(ath_file)[0]}_slice_{variableName}_{str.join('',slice_coords_list)}_{remaining_coord_field}_{loc}.png"
-    else:
-      plt_filename = f"{os.path.splitext(ath_file)[0]}_slice_{variableName}_{str.join('',slice_coords_list)}_{np.max(remain_coord_range):.1e}_{remaining_coord_field}_{loc}.png"
-
-    if output_dir!=None:
-      plt_filename = os.path.join(output_dir,os.path.basename(plt_filename))
     
     plt.savefig(plt_filename,bbox_inches="tight",dpi=200)
-    plt.clf()
-  plt.close()
+    plt.close(fig)
+    del fig, ax, im, cbar
+    gc.collect()
 
-def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", slice_dim=0,loc=0, remain_coord_range=None, length_scale=1, length_scale_label='',output_dir=None,**kwargs):
+def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", slice_dim=0,loc=0, remain_coord_range=None, length_scale=1, length_scale_label='',output_dir=None,replace=False,**kwargs):
   """
   Plot a 2D slice of a 3D Athena++ HDF5 dataset using cell interface coordinates.
 
@@ -257,6 +265,23 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
   label_dict = get_label_dictionary(variables)
   vmin_dict,vmax_dict,cmap_dict = generate_plot_kwargs_dict(kwargs)
 
+  slice_coord_dims = list(set(range(3))-{slice_dim})
+  slice_coords_list = [f"x{i+1}" for i in slice_coord_dims]
+  remaining_coord_field=f"x{slice_dim+1}"
+
+  variableNames = "-".join(variables)
+  if(remain_coord_range==None):
+    plt_filename = f"{os.path.splitext(ath_file)[0]}_panel_{variableNames}_{str.join('',slice_coords_list)}_{remaining_coord_field}_{loc}.png"
+  else:
+    plt_filename = f"{os.path.splitext(ath_file)[0]}_panel_{variableNames}_{str.join('',slice_coords_list)}_{np.max(remain_coord_range):.1e}_{remaining_coord_field}_{loc}.png"
+  
+  if output_dir!=None:
+    plt_filename = os.path.join(output_dir,os.path.basename(plt_filename))
+
+  if os.path.exists(plt_filename) and (not replace):
+    print(f"{plt_filename} already exists! exiting")
+    return
+
   for ind,variableName in enumerate(variables):
     ax = axes.flatten()[ind]
     if ('log' in variableName):
@@ -289,8 +314,6 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
         else:
           im=ax.pcolormesh(slice_grid[i,:,0]/length_scale,slice_grid[i,:,1]/length_scale,data_toplot,**pcolormesh_kwargs)
     
-    slice_coord_dims = list(set(range(3))-{slice_dim})
-    slice_coords_list = [f"x{i+1}" for i in slice_coord_dims]
 
     if(ind//4==nrows-1):
       ax.set_xlabel(f"{slice_coords_list[0]}{length_scale_label}")
@@ -299,74 +322,66 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
     ax.set_title(f"{label_dict[variables[ind]]}")
     cbar = fig.colorbar(im,ax=ax,pad=0)
 
-    remaining_coord_field=f"x{slice_dim+1}"
     ax.set_xlim(np.array(remain_coord_range[:2])/length_scale)
     ax.set_ylim(np.array(remain_coord_range[2:])/length_scale)
   
   plt.suptitle(f"Panel at t={time:.2f}",y=(1.0+0.02*ncols))
   plt.subplots_adjust(left=0,right=1,bottom=0,top=1)
 
-  variableNames = "-".join(variables)
-  if(remain_coord_range==None):
-    plt_filename = f"{os.path.splitext(ath_file)[0]}_panel_{variableNames}_{str.join('',slice_coords_list)}_{remaining_coord_field}_{loc}.png"
-  else:
-    plt_filename = f"{os.path.splitext(ath_file)[0]}_panel_{variableNames}_{str.join('',slice_coords_list)}_{np.max(remain_coord_range):.1e}_{remaining_coord_field}_{loc}.png"
-  
-  if output_dir!=None:
-    plt_filename = os.path.join(output_dir,os.path.basename(plt_filename))
   
   plt.savefig(plt_filename,bbox_inches="tight",dpi=200)
-  plt.clf()
-  plt.close()
+  plt.close(fig)
+  del fig, ax, im, cbar
+  gc.collect()
   
 def load_slice_and_variables(ath_file,variables,slice_kwargs):
-  hfp = h5py.File(ath_file)
-  hydro = hfp['hydro']
-  xvs = [hfp['x1v'],hfp['x2v'],hfp['x3v']]
-  xfs = [hfp['x1f'],hfp['x2f'],hfp['x3f']]
+  with h5py.File(ath_file) as hfp:
+    hydro = hfp['hydro']
+    xvs = [hfp['x1v'],hfp['x2v'],hfp['x3v']]
+    xfs = [hfp['x1f'],hfp['x2f'],hfp['x3f']]
 
-  header={i:hfp.attrs[i] for i in hfp.attrs.keys()}
-  header['VariableNames'] = [i.decode('utf-8') for i in header['VariableNames']]
-  # load hydro and Jcurrent slices
-  slice_hydro,slice_grid = athena_slicing.extract_slice(xvs,xfs,hydro,**slice_kwargs)
-  # extract the variables we wish to plot
-  var_list_full=var_list_lookup(header,slice_kwargs['current'])
-  slice_data = np.zeros(shape=(*slice_hydro.shape[:-1],len(variables)))
-  for ind,variableName in enumerate(variables):
-    if ('log' in variableName):
-      variable = variableName.replace('log','')
-      log_flag = True
-    else:
-      log_flag = False
-      variable = variableName
-    if variable in var_list_full:
-      var_ind = var_list_full.index(variable)
-      slice_data[...,ind] = slice_hydro[...,var_ind]
-    elif variable=='Bmag':
-      b1_ind = var_list_full.index('Bcc1')
-      for ii in range(3):
-        b_ind = b1_ind+ii
-        slice_data[...,ind]+=slice_hydro[...,b_ind]**2
-      slice_data[...,ind]=np.sqrt(slice_data[...,ind])
-    elif variable=='beta':
-      b1_ind = var_list_full.index('Bcc1')
-      for ii in range(3):
-        b_ind = b1_ind+ii
-        slice_data[...,ind]+=slice_hydro[...,b_ind]**2
-      # adiabatic
-      try:
-        press_ind = var_list_full.index('press')
-        slice_data[...,ind]=slice_hydro[...,press_ind]/(slice_data[...,ind]/2)
-      # isothermal
-      except Exception as e:
-        if ('cs' in slice_kwargs.keys()):
-          cs = slice_kwargs['cs']
-        else:
-          cs = 0.05
-        rho_ind = var_list_full.index('rho')
-        slice_data[...,ind]=cs**2 * slice_hydro[...,rho_ind]/(slice_data[...,ind]/2)
-    else:
-      print(f"processing {variable} has not yet been implemented! skipping")
+    header={i:hfp.attrs[i] for i in hfp.attrs.keys()}
+    header['VariableNames'] = [i.decode('utf-8') for i in header['VariableNames']]
+    # load hydro and Jcurrent slices
+    slice_hydro,slice_grid = athena_slicing.extract_slice(xvs,xfs,hydro,**slice_kwargs)
+    # extract the variables we wish to plot
+    var_list_full=var_list_lookup(header,slice_kwargs['current'])
+    slice_data = np.zeros(shape=(*slice_hydro.shape[:-1],len(variables)))
+    for ind,variableName in enumerate(variables):
+      if ('log' in variableName):
+        variable = variableName.replace('log','')
+        log_flag = True
+      else:
+        log_flag = False
+        variable = variableName
+      if variable in var_list_full:
+        var_ind = var_list_full.index(variable)
+        slice_data[...,ind] = slice_hydro[...,var_ind]
+      elif variable=='Bmag':
+        b1_ind = var_list_full.index('Bcc1')
+        for ii in range(3):
+          b_ind = b1_ind+ii
+          slice_data[...,ind]+=slice_hydro[...,b_ind]**2
+        slice_data[...,ind]=np.sqrt(slice_data[...,ind])
+      elif variable=='beta':
+        b1_ind = var_list_full.index('Bcc1')
+        for ii in range(3):
+          b_ind = b1_ind+ii
+          slice_data[...,ind]+=slice_hydro[...,b_ind]**2
+        # adiabatic
+        try:
+          press_ind = var_list_full.index('press')
+          slice_data[...,ind]=slice_hydro[...,press_ind]/(slice_data[...,ind]/2)
+        # isothermal
+        except Exception as e:
+          if ('cs' in slice_kwargs.keys()):
+            cs = slice_kwargs['cs']
+          else:
+            cs = 0.05
+          rho_ind = var_list_full.index('rho')
+          slice_data[...,ind]=cs**2 * slice_hydro[...,rho_ind]/(slice_data[...,ind]/2)
+      else:
+        print(f"processing {variable} has not yet been implemented! skipping")
   return slice_data,slice_grid,header
 
 def process_file(ath_file,plot_type,slice_kwargs,plot_kwargs):
@@ -390,7 +405,7 @@ def process_file(ath_file,plot_type,slice_kwargs,plot_kwargs):
 @click.argument('files_and_kwargs', nargs=-1,type=click.UNPROCESSED)
 @click.option("--plot_type",default='slice',type=str,help="plot type (slice,panel,projection)")
 @click.option('--num_cores_multiplier',default=0.95,type=float,help='multiplier to set number of cores')
-@click.option('--parallel','-p',is_flag=True,help='flag to process the files in parallel')
+@click.option('--parallel/--no-parallel','-p',default=False,is_flag=True,help='flag to process the files in parallel')
 @click.option("--variables",'-v',default=['rho'],help='variables to plot',multiple=True)
 @click.option("--slice_dim",'-d', default=0,help="dimension (x1=0,x2=1,x3=2) over which to slice")
 @click.option("--loc",default=0,type=float,help="Location to slice along slice_dim")
@@ -398,7 +413,8 @@ def process_file(ath_file,plot_type,slice_kwargs,plot_kwargs):
 @click.option("--length_scale", default=1, type=float, help="Length scale for scaling slice coordinates")
 @click.option("--length_scale_label",default="",type=str, help="label for clarifying length scale in plots")
 @click.option("--output_dir",default=None,help="Location to output the plots")
-def load_and_plot(files_and_kwargs,plot_type,num_cores_multiplier,parallel,variables,slice_dim,loc,slice_domain,length_scale,length_scale_label,output_dir):
+@click.option("--replace",is_flag=True,help="Boolean whether to replace plot if it already exists")
+def load_and_plot(files_and_kwargs,plot_type,num_cores_multiplier,parallel,variables,slice_dim,loc,slice_domain,length_scale,length_scale_label,output_dir,replace):
   #separate the files to analyze from the matplotlib kwargs
   files = [i for i in files_and_kwargs if os.path.exists(i)]
   if files == []:
@@ -438,7 +454,7 @@ def load_and_plot(files_and_kwargs,plot_type,num_cores_multiplier,parallel,varia
 
   slice_kwargs={'slice_dim':slice_dim,'loc':loc,'remain_coord_range':slice_domain,'current':any(s.startswith('J') for s in list(variables))}
 
-  plot_kwargs_sub={'variables':list(variables),'slice_dim':slice_dim,'loc':loc,'length_scale':length_scale,'length_scale_label':length_scale_label,'output_dir':output_dir}
+  plot_kwargs_sub={'variables':list(variables),'slice_dim':slice_dim,'loc':loc,'length_scale':length_scale,'length_scale_label':length_scale_label,'output_dir':output_dir,'replace':replace}
   if (slice_domain != None):
     plot_kwargs_sub['remain_coord_range']=slice_domain
   plot_kwargs = plot_kwargs_sub | plot_kwargs
