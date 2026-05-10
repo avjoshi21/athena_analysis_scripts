@@ -16,9 +16,10 @@ file_path = os.path.realpath(__file__)
 sys.path.insert(0, os.path.basename(file_path))
 import athena_slicing
 
-def get_dim(variable="vel2",subvar="vel"):
+def get_subscript(variable="vel2",subvar="vel"):
   if "sq" in variable:
     return '^2'
+  # elif
   else:
     index = variable.find(subvar)
     dim=variable[index + len(subvar)]
@@ -42,17 +43,17 @@ def get_label_dictionary(variables):
     if 'rho' in variable:
       label_dict[variable]=rf'{log_prepend}$\rho$'
     elif "vel" in variable:
-      append_str = get_dim(variable,"vel")
+      append_str = get_subscript(variable,"vel")
       label_dict[variable]=rf'{log_prepend}$v{append_str}$'
     elif "Bcc" in variable:
-      append_str = get_dim(variable,"Bcc")
+      append_str = get_subscript(variable,"Bcc")
       label_dict[variable]=rf'{log_prepend}$B{append_str}$'
     elif "Bmag" in variable:
       label_dict[variable]=rf'{log_prepend}$|B|$'
     elif "beta" in variable:
       label_dict[variable]=rf'{log_prepend}$\beta$'
     elif "J" in variable:
-      append_str = get_dim(variable,"J")
+      append_str = get_subscript(variable,"J")
       label_dict[variable]=rf'{log_prepend}$J{append_str}$'
     else:
       label_dict[variable] = variable
@@ -84,6 +85,43 @@ def generate_plot_kwargs_dict(kwargs):
       elif key == 'cmap':
         cmap_dict = plot_dict
   return vmin_dict,vmax_dict,cmap_dict
+
+def get_vmin_vmax_cmap(vmin_dict,vmax_dict,cmap_dict,variableName,var_ind,slice_data,log_flag):
+  # Determine color scale and colormap for this variable
+  vmin = vmin_dict.get(variableName, None)
+  vmax = vmax_dict.get(variableName, None)
+  cmap = cmap_dict.get(variableName, 'turbo')
+
+  # **ADD THIS WARNING AND AUTO-SCALING BLOCK:**
+  if vmin is None or vmax is None:
+    import warnings
+    # Compute global min/max across all meshblocks
+    if log_flag:
+      global_min = np.min(np.log10(np.abs(slice_data[..., var_ind]) + 1e-50))
+      global_max = np.max(np.log10(np.abs(slice_data[..., var_ind]) + 1e-50))
+    else:
+      global_min = np.min(slice_data[..., var_ind])
+      global_max = np.max(slice_data[..., var_ind])
+    
+    if (vmin is None) and (vmax is None) and (cmap == 'seismic'):
+      # since it's a divergent colormap you probably want it centered around zero.
+      warnings.warn(f"Using global minimum and maxima.",UserWarning)
+      max_val = max(abs(global_max),abs(global_min))
+      vmin = -max_val
+      vmax = max_val
+
+    elif vmin is None:
+      vmin = global_min
+      warnings.warn(f"vmin not specified for '{variableName}'. Using global minimum: {vmin:.3e}. "
+                    f"Consider setting explicit limits to avoid per-meshblock scaling artifacts.",
+                    UserWarning)
+    elif vmax is None:
+      vmax = global_max
+      warnings.warn(f"vmax not specified for '{variableName}'. Using global maximum: {vmax:.3e}. "
+                    f"Consider setting explicit limits to avoid per-meshblock scaling artifacts.",
+                    UserWarning)
+    # print(vmin,vmax,cmap);exit()
+  return vmin,vmax,cmap
 
 def plot_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", slice_dim=0,loc=0, remain_coord_range=None, length_scale=1, length_scale_label='',output_dir=None,replace=False,**kwargs):
   """
@@ -168,9 +206,7 @@ def plot_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", sli
     print(f"{variable} max {np.max(slice_data[...,var_ind]):.2e}, min {np.min(slice_data[...,var_ind]):.2e}")
 
     # Determine color scale and colormap for this variable
-    vmin = vmin_dict.get(variableName, None)
-    vmax = vmax_dict.get(variableName, None)
-    cmap = cmap_dict.get(variableName, None)
+    vmin,vmax,cmap = get_vmin_vmax_cmap(vmin_dict,vmax_dict,cmap_dict,variableName,var_ind,slice_data,log_flag)
 
     # Prepare pcolormesh kwargs for this variable
     pcolormesh_kwargs = kwargs.copy()
@@ -201,7 +237,10 @@ def plot_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", sli
     
     plt.savefig(plt_filename,bbox_inches="tight",dpi=200)
     plt.close(fig)
-    del fig, ax, im, cbar
+    try:
+      del fig, ax, im, cbar
+    except:
+      pass
     gc.collect()
 
 def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", slice_dim=0,loc=0, remain_coord_range=None, length_scale=1, length_scale_label='',output_dir=None,replace=False,**kwargs):
@@ -255,10 +294,13 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
     width = height * aspect_ratio
 
   n_vars = len(variables)
-  nrows = max(n_vars//4,1)
-  ncols = min(n_vars,4)
+  if n_vars>4:
+    ncols = min(int(np.ceil(n_vars/2)),4)
+    nrows = (n_vars-1)//ncols + 1
+  else:
+    ncols=min(n_vars,4)
+    nrows=1
   fig, axes = plt.subplots(nrows, ncols, figsize=(1.2*(ncols)*width, nrows*height), sharey=True, sharex=True, squeeze=False)
-
   # Get simulation time
   time = header['Time']
   # Generate dictionaries of labels and plot kwargs
@@ -283,7 +325,9 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
     return
 
   for ind,variableName in enumerate(variables):
-    ax = axes.flatten()[ind]
+    row_ind = ind//ncols
+    col_ind = ind%ncols
+    ax = axes[row_ind,col_ind]
     if ('log' in variableName):
       variable = variableName.replace('log','')
       log_flag = True
@@ -293,10 +337,7 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
     var_ind = variables.index(variableName)
     print(f"{variable} max {np.max(slice_data[...,var_ind]):.2e}, min {np.min(slice_data[...,var_ind]):.2e}")
 
-    # Determine color scale and colormap for this variable
-    vmin = vmin_dict.get(variableName, None)
-    vmax = vmax_dict.get(variableName, None)
-    cmap = cmap_dict.get(variableName, None)
+    vmin,vmax,cmap = get_vmin_vmax_cmap(vmin_dict,vmax_dict,cmap_dict,variableName,var_ind,slice_data,log_flag)
 
     # Prepare pcolormesh kwargs for this variable
     pcolormesh_kwargs = kwargs.copy()
@@ -331,58 +372,168 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
   
   plt.savefig(plt_filename,bbox_inches="tight",dpi=200)
   plt.close(fig)
-  del fig, ax, im, cbar
+  try:
+    del fig, ax, im, cbar
+  except:
+    pass
   gc.collect()
   
-def load_slice_and_variables(ath_file,variables,slice_kwargs):
+def load_slice_and_variables(ath_file, variables, slice_kwargs):
   with h5py.File(ath_file) as hfp:
     hydro = hfp['hydro']
-    xvs = [hfp['x1v'],hfp['x2v'],hfp['x3v']]
-    xfs = [hfp['x1f'],hfp['x2f'],hfp['x3f']]
+    xvs = [hfp['x1v'], hfp['x2v'], hfp['x3v']]
+    xfs = [hfp['x1f'], hfp['x2f'], hfp['x3f']]
 
-    header={i:hfp.attrs[i] for i in hfp.attrs.keys()}
+    header = {i: hfp.attrs[i] for i in hfp.attrs.keys()}
     header['VariableNames'] = [i.decode('utf-8') for i in header['VariableNames']]
+    
     # load hydro and Jcurrent slices
-    slice_hydro,slice_grid = athena_slicing.extract_slice(xvs,xfs,hydro,**slice_kwargs)
+    slice_hydro, slice_grid = athena_slicing.extract_slice(xvs, xfs, hydro, **slice_kwargs)
+    
     # extract the variables we wish to plot
-    var_list_full=var_list_lookup(header,slice_kwargs['current'])
-    slice_data = np.zeros(shape=(*slice_hydro.shape[:-1],len(variables)))
-    for ind,variableName in enumerate(variables):
+    var_list_full = var_list_lookup(header, slice_kwargs['current'])
+    slice_data = np.zeros(shape=(*slice_hydro.shape[:-1], len(variables)))
+    
+    # Determine if we need cylindrical transformations
+    cyl_vars = ['velr', 'velphi', 'velz', 'Br', 'Bphi', 'Bz']
+    needs_cyl = any(var.replace('log', '') in cyl_vars for var in variables)
+    
+    # Compute cylindrical coordinates if needed
+    if needs_cyl:
+      R_grid, phi_grid = compute_cylindrical_coords(slice_grid, slice_kwargs)
+    
+    for ind, variableName in enumerate(variables):
       if ('log' in variableName):
-        variable = variableName.replace('log','')
+        variable = variableName.replace('log', '')
         log_flag = True
       else:
         log_flag = False
         variable = variableName
-      if variable in var_list_full:
+      
+      # Handle cylindrical velocity components
+      if variable == 'velr':
+        vx_ind, vy_ind = var_list_full.index('vel1'), var_list_full.index('vel2')
+        vx, vy = slice_hydro[..., vx_ind], slice_hydro[..., vy_ind]
+        slice_data[..., ind] = vx * np.cos(phi_grid) + vy * np.sin(phi_grid)
+      elif variable == 'velphi':
+        vx_ind, vy_ind = var_list_full.index('vel1'), var_list_full.index('vel2')
+        vx, vy = slice_hydro[..., vx_ind], slice_hydro[..., vy_ind]
+        slice_data[..., ind] = -vx * np.sin(phi_grid) + vy * np.cos(phi_grid)
+      elif variable == 'velz':
+        vz_ind = var_list_full.index('vel3')
+        slice_data[..., ind] = slice_hydro[..., vz_ind]
+      
+      # Handle cylindrical magnetic field components
+      elif variable == 'Br':
+        bx_ind, by_ind = var_list_full.index('Bcc1'), var_list_full.index('Bcc2')
+        bx, by = slice_hydro[..., bx_ind], slice_hydro[..., by_ind]
+        slice_data[..., ind] = bx * np.cos(phi_grid) + by * np.sin(phi_grid)
+      elif variable == 'Bphi':
+        bx_ind, by_ind = var_list_full.index('Bcc1'), var_list_full.index('Bcc2')
+        bx, by = slice_hydro[..., bx_ind], slice_hydro[..., by_ind]
+        slice_data[..., ind] = -bx * np.sin(phi_grid) + by * np.cos(phi_grid)
+      elif variable == 'Bz':
+        bz_ind = var_list_full.index('Bcc3')
+        slice_data[..., ind] = slice_hydro[..., bz_ind]
+      
+      # Handle Cartesian variables
+      elif variable in var_list_full:
         var_ind = var_list_full.index(variable)
-        slice_data[...,ind] = slice_hydro[...,var_ind]
-      elif variable=='Bmag':
+        slice_data[..., ind] = slice_hydro[..., var_ind]
+      elif variable == 'Bmag':
         b1_ind = var_list_full.index('Bcc1')
         for ii in range(3):
-          b_ind = b1_ind+ii
-          slice_data[...,ind]+=slice_hydro[...,b_ind]**2
-        slice_data[...,ind]=np.sqrt(slice_data[...,ind])
-      elif variable=='beta':
+          b_ind = b1_ind + ii
+          slice_data[..., ind] += slice_hydro[..., b_ind]**2
+        slice_data[..., ind] = np.sqrt(slice_data[..., ind])
+      elif variable == 'beta':
         b1_ind = var_list_full.index('Bcc1')
         for ii in range(3):
-          b_ind = b1_ind+ii
-          slice_data[...,ind]+=slice_hydro[...,b_ind]**2
+          b_ind = b1_ind + ii
+          slice_data[..., ind] += slice_hydro[..., b_ind]**2
         # adiabatic
         try:
           press_ind = var_list_full.index('press')
-          slice_data[...,ind]=slice_hydro[...,press_ind]/(slice_data[...,ind]/2)
+          slice_data[..., ind] = slice_hydro[..., press_ind] / (slice_data[..., ind] / 2)
         # isothermal
         except Exception as e:
-          if ('cs' in slice_kwargs.keys()):
-            cs = slice_kwargs['cs']
-          else:
-            cs = 0.05
+          cs = slice_kwargs.get('cs', 0.05)
           rho_ind = var_list_full.index('rho')
-          slice_data[...,ind]=cs**2 * slice_hydro[...,rho_ind]/(slice_data[...,ind]/2)
+          slice_data[..., ind] = cs**2 * slice_hydro[..., rho_ind] / (slice_data[..., ind] / 2)
       else:
         print(f"processing {variable} has not yet been implemented! skipping")
-  return slice_data,slice_grid,header
+      
+      # Apply log if requested
+      if log_flag:
+        slice_data[..., ind] = np.log10(np.abs(slice_data[..., ind]) + 1e-50)
+  
+  return slice_data, slice_grid, header
+
+
+def compute_cylindrical_coords(slice_grid, slice_kwargs):
+  """
+  Compute cylindrical coordinates (R, phi) for a 2D slice.
+  
+  Parameters
+  ----------
+  slice_grid : np.ndarray
+    Shape: (Nmb_selected, mb+1, 2)
+    Face-centered coordinates in the two dimensions of the slice.
+  
+  slice_kwargs : dict
+    Must contain 'slice_dim' to determine slice orientation.
+    May contain 'loc' to get the coordinate of the sliced axis.
+  
+  Returns
+  -------
+  R_grid : np.ndarray
+    Cylindrical radius at cell centers. Shape: (Nmb_selected, mb, mb)
+  
+  phi_grid : np.ndarray
+    Azimuthal angle at cell centers. Shape: (Nmb_selected, mb, mb)
+  """
+  # Determine slice axis
+  slice_dim = slice_kwargs.get('slice_dim', 1)
+  
+  loc = slice_kwargs.get('loc', 0.0)
+  
+  # Convert to cell centers from face centers
+  # slice_grid has shape (Nmb, mb+1, 2)
+  coord1_centers = 0.5 * (slice_grid[:, :-1, 0] + slice_grid[:, 1:, 0])  # (Nmb, mb)
+  coord2_centers = 0.5 * (slice_grid[:, :-1, 1] + slice_grid[:, 1:, 1])  # (Nmb, mb)
+  
+  # Create 2D meshgrids for each meshblock
+  # Result shapes: (Nmb, mb, mb)
+  coord1_2d = coord1_centers[:, :, np.newaxis]  # (Nmb, mb, 1)
+  coord2_2d = coord2_centers[:, np.newaxis, :]  # (Nmb, 1, mb)
+  coord1_2d = np.broadcast_to(coord1_2d, (coord1_2d.shape[0], coord1_2d.shape[1], coord2_centers.shape[1]))
+  coord2_2d = np.broadcast_to(coord2_2d, (coord2_2d.shape[0], coord1_centers.shape[1], coord2_2d.shape[2]))
+  
+  # Determine x, y based on slice orientation
+  # Assuming Cartesian coordinates: x1=x, x2=y, x3=z
+  if slice_dim == 0:
+    # Slice perpendicular to x; coords are (y, z)
+    x = loc * np.ones_like(coord1_2d)
+    y = coord1_2d  # First coordinate is y
+    z = coord2_2d  # Second coordinate is z
+  elif slice_dim == 1:
+    # Slice perpendicular to y; coords are (x, z)
+    x = coord1_2d  # First coordinate is x
+    y = loc * np.ones_like(coord1_2d)
+    z = coord2_2d  # Second coordinate is z
+  elif slice_dim == 2:
+    # Slice perpendicular to z; coords are (x, y)
+    x = coord1_2d  # First coordinate is x
+    y = coord2_2d  # Second coordinate is y
+    z = loc * np.ones_like(coord1_2d)
+  else:
+    raise ValueError(f"Unknown slice_dim: {slice_dim}")
+  
+  # Compute cylindrical coordinates
+  R_grid = np.sqrt(x**2 + y**2)
+  phi_grid = np.arctan2(y, x)
+  
+  return R_grid, phi_grid
 
 def process_file(ath_file,plot_type,slice_kwargs,plot_kwargs):
   """

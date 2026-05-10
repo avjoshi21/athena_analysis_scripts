@@ -52,7 +52,7 @@ def extract_slice(xvs,xfs,hydro,slice_dim,loc,remain_coord_range=None,current=Fa
     Nprims = hydro.shape[0]
     Nmb = hydro.shape[1]
     mb = hydro.shape[-1]
-    remain_dim = list(set(range(3)) - set([slice_dim]))
+    remain_dim = sorted(list(set(range(3)) - set([slice_dim])))
     slice_data = []
     slice_grid = []
     for i in range(Nmb):
