@@ -59,7 +59,7 @@ def get_label_dictionary(variables):
       label_dict[variable] = variable
   return label_dict
 
-def generate_plot_kwargs_dict(kwargs):
+def generate_plot_kwargs_dict(variables,kwargs):
   # Extract possible per-variable plotting options
   vmin_dict={}
   vmax_dict={}
@@ -175,7 +175,7 @@ def plot_slice(slice_data,slice_grid,header,ath_file='test',variables="rho", sli
   time = header['Time']
   # Generate dictionaries of labels and plot kwargs
   label_dict = get_label_dictionary(variables)
-  vmin_dict,vmax_dict,cmap_dict = generate_plot_kwargs_dict(kwargs)
+  vmin_dict,vmax_dict,cmap_dict = generate_plot_kwargs_dict(variables,kwargs)
 
   slice_coord_dims = list(set(range(3))-{slice_dim})
   slice_coords_list = [f"x{i+1}" for i in slice_coord_dims]
@@ -305,7 +305,7 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
   time = header['Time']
   # Generate dictionaries of labels and plot kwargs
   label_dict = get_label_dictionary(variables)
-  vmin_dict,vmax_dict,cmap_dict = generate_plot_kwargs_dict(kwargs)
+  vmin_dict,vmax_dict,cmap_dict = generate_plot_kwargs_dict(variables,kwargs)
 
   slice_coord_dims = list(set(range(3))-{slice_dim})
   slice_coords_list = [f"x{i+1}" for i in slice_coord_dims]
@@ -335,7 +335,7 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
       log_flag = False
       variable = variableName
     var_ind = variables.index(variableName)
-    print(f"{variable} max {np.max(slice_data[...,var_ind]):.2e}, min {np.min(slice_data[...,var_ind]):.2e}")
+    print(f"{variableName} max {np.max(slice_data[...,var_ind]):.2e}, min {np.min(slice_data[...,var_ind]):.2e}")
 
     vmin,vmax,cmap = get_vmin_vmax_cmap(vmin_dict,vmax_dict,cmap_dict,variableName,var_ind,slice_data,log_flag)
 
@@ -350,10 +350,7 @@ def plot_panel_slice(slice_data,slice_grid,header,ath_file='test',variables="rho
 
     for i in range(slice_grid.shape[0]):
         data_toplot=slice_data[i,...,var_ind]
-        if(log_flag):
-          im=ax.pcolormesh(slice_grid[i,:,0]/length_scale,slice_grid[i,:,1]/length_scale,np.log10(abs(data_toplot)),**pcolormesh_kwargs)
-        else:
-          im=ax.pcolormesh(slice_grid[i,:,0]/length_scale,slice_grid[i,:,1]/length_scale,data_toplot,**pcolormesh_kwargs)
+        im=ax.pcolormesh(slice_grid[i,:,0]/length_scale,slice_grid[i,:,1]/length_scale,data_toplot,**pcolormesh_kwargs)
     
 
     if(ind//4==nrows-1):
@@ -395,7 +392,7 @@ def load_slice_and_variables(ath_file, variables, slice_kwargs):
     slice_data = np.zeros(shape=(*slice_hydro.shape[:-1], len(variables)))
     
     # Determine if we need cylindrical transformations
-    cyl_vars = ['velr', 'velphi', 'velz', 'Br', 'Bphi', 'Bz']
+    cyl_vars = ['velr', 'velphi', 'velz', 'Br', 'Bphi', 'Bz', 'Jr', 'Jphi', 'Jz']
     needs_cyl = any(var.replace('log', '') in cyl_vars for var in variables)
     
     # Compute cylindrical coordinates if needed
@@ -435,6 +432,19 @@ def load_slice_and_variables(ath_file, variables, slice_kwargs):
       elif variable == 'Bz':
         bz_ind = var_list_full.index('Bcc3')
         slice_data[..., ind] = slice_hydro[..., bz_ind]
+
+      # Handle cylindrical current density components
+      elif variable == 'Jr':
+        J1_ind, J2_ind = var_list_full.index('J1'), var_list_full.index('J2')
+        J1, J2 = slice_hydro[..., J1_ind], slice_hydro[..., J2_ind]
+        slice_data[..., ind] = J1 * np.cos(phi_grid) + J2 * np.sin(phi_grid)
+      elif variable == 'Jphi':
+        J1_ind, J2_ind = var_list_full.index('J1'), var_list_full.index('J2')
+        J1, J2 = slice_hydro[..., J1_ind], slice_hydro[..., J2_ind]
+        slice_data[..., ind] = -J1 * np.sin(phi_grid) + J2 * np.cos(phi_grid)
+      elif variable == 'Jz':
+        J3_ind = var_list_full.index('J3')
+        slice_data[..., ind] = slice_hydro[..., J3_ind]
       
       # Handle Cartesian variables
       elif variable in var_list_full:
@@ -465,7 +475,7 @@ def load_slice_and_variables(ath_file, variables, slice_kwargs):
       
       # Apply log if requested
       if log_flag:
-        slice_data[..., ind] = np.log10(np.abs(slice_data[..., ind]) + 1e-50)
+        slice_data[..., ind] = np.log10(np.abs(slice_data[..., ind]))
   
   return slice_data, slice_grid, header
 
