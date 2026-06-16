@@ -345,51 +345,76 @@ def load_slice_and_variables(ath_file, variables, slice_kwargs):
   return slice_data, slice_grid, header
 
 def compute_cylindrical_coords(grid_data, slice_kwargs=None):
-  """Compute cylindrical coordinates (R, phi) for slice or full domain."""
+  """Compute cylindrical coordinates (R, phi) from Cartesian grid data.
   
-  # Check if this is a slice (2D) or domain (3D)
+  Parameters
+  ----------
+  grid_data : ndarray
+    For slice: (Nmb, mb+1, 2) face coordinates. For domain: (Nmb, mb+1, 3) meshblock faces.
+  slice_kwargs : dict, optional
+    Contains 'slice_dim' (0=x, 1=y, 2=z) and 'loc' (slice location, default 0.0).
+    
+  Returns
+  -------
+  R : ndarray
+    Cylindrical radial coordinate. Shape (Nmb, mb, mb) for slice or (Nmb, mb, mb, mb) for domain.
+  phi : ndarray
+    Azimuthal angle in radians. Same shape as R.
+  """
+  
   if slice_kwargs is not None and 'slice_dim' in slice_kwargs:
     slice_grid = grid_data
     slice_dim = slice_kwargs['slice_dim']
     loc = slice_kwargs.get('loc', 0.0)
     
-    coord1_centers = 0.5 * (slice_grid[:, :-1, 0] + slice_grid[:, 1:, 0])
-    coord2_centers = 0.5 * (slice_grid[:, :-1, 1] + slice_grid[:, 1:, 1])
+    # Compute cell centers from face coordinates
+    # slice_grid has shape (Nmb, mb+1, 2) - preserve meshblock dimension!
+    coord1_centers = 0.5 * (slice_grid[:, :-1, 0] + slice_grid[:, 1:, 0])  # (Nmb, mb)
+    coord2_centers = 0.5 * (slice_grid[:, :-1, 1] + slice_grid[:, 1:, 1])  # (Nmb, mb)
     
-    coord1_2d = coord1_centers[:, :, np.newaxis]
-    coord2_2d = coord2_centers[:, np.newaxis, :]
+    # Create 2D meshgrids for each meshblock
+    # Result shapes: (Nmb, mb, mb)
+    coord1_2d = coord1_centers[:, :, np.newaxis]  # (Nmb, mb, 1)
+    coord2_2d = coord2_centers[:, np.newaxis, :]  # (Nmb, 1, mb)
     coord1_2d = np.broadcast_to(coord1_2d, (coord1_2d.shape[0], coord1_2d.shape[1], coord2_centers.shape[1]))
     coord2_2d = np.broadcast_to(coord2_2d, (coord2_2d.shape[0], coord1_centers.shape[1], coord2_2d.shape[2]))
     
+    # Assign Cartesian coordinates based on slice dimension
     if slice_dim == 0:
-      x, y, z = loc * np.ones_like(coord1_2d), coord1_2d, coord2_2d
+      # Slice perpendicular to x; coords are (y, z)
+      x = loc * np.ones_like(coord1_2d)
+      y = coord1_2d
+      z = coord2_2d
     elif slice_dim == 1:
-      x, y, z = coord1_2d, loc * np.ones_like(coord1_2d), coord2_2d
+      # Slice perpendicular to y; coords are (x, z)
+      x = coord1_2d
+      y = loc * np.ones_like(coord1_2d)
+      z = coord2_2d
     elif slice_dim == 2:
-      x, y, z = coord1_2d, coord2_2d, loc * np.ones_like(coord1_2d)
+      # Slice perpendicular to z; coords are (x, y)
+      x = coord1_2d
+      y = coord2_2d
+      z = loc * np.ones_like(coord1_2d)
     else:
-      raise ValueError(f"Unknown slice_dim: {slice_dim}")
+      raise ValueError(f"Unknown slice_dim: {slice_dim}. Must be 0, 1, or 2.")
+    
+    R = np.sqrt(x**2 + y**2)
+    phi = np.arctan2(y, x)
+    return R, phi
+    
   else:
-    # Full domain case - compute per meshblock to avoid memory explosion
-    xfs = grid_data  # Shape: (Nmb_selected, mb+1, 3)
+    # 3D domain case (unchanged)
+    xfs = grid_data
     Nmb = xfs.shape[0]
     mb = xfs.shape[1] - 1
-    
-    # Pre-allocate output arrays
     R_grid = np.zeros((Nmb, mb, mb, mb), dtype=np.float32)
     phi_grid = np.zeros((Nmb, mb, mb, mb), dtype=np.float32)
     
-    # Process each meshblock individually
     for i in range(Nmb):
-      # Get cell centers for this meshblock
-      x1_centers = 0.5 * (xfs[i, :-1, 0] + xfs[i, 1:, 0])  # Shape: (mb,)
-      x2_centers = 0.5 * (xfs[i, :-1, 1] + xfs[i, 1:, 1])  # Shape: (mb,)
-      x3_centers = 0.5 * (xfs[i, :-1, 2] + xfs[i, 1:, 2])  # Shape: (mb,)
-      
-      # Create 3D coordinate grids for this meshblock only
+      x1_centers = 0.5 * (xfs[i, :-1, 0] + xfs[i, 1:, 0])
+      x2_centers = 0.5 * (xfs[i, :-1, 1] + xfs[i, 1:, 1])
+      x3_centers = 0.5 * (xfs[i, :-1, 2] + xfs[i, 1:, 2])
       x, y, z = np.meshgrid(x1_centers, x2_centers, x3_centers, indexing='ij')
-      
-      # Compute cylindrical coordinates for this meshblock
       R_grid[i] = np.sqrt(x**2 + y**2)
       phi_grid[i] = np.arctan2(y, x)
     
