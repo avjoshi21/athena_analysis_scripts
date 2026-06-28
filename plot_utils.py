@@ -3,7 +3,9 @@ import numpy as np
 def get_subscript(variable="vel2",subvar="vel"):
   if "sq" in variable:
     return '^2'
-  # elif
+  elif "rsph" in variable:
+    return r'_{r,\mathrm{sph}}'
+  # default: put the first letter as subscript
   else:
     index = variable.find(subvar)
     dim=variable[index + len(subvar)]

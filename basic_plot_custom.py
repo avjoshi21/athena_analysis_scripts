@@ -298,7 +298,7 @@ def process_file(ath_file,plot_type,slice_kwargs,plot_kwargs):
 @click.option("--length_scale", default=1, type=float, help="Length scale for scaling slice coordinates")
 @click.option("--length_scale_label",default="",type=str, help="label for clarifying length scale in plots")
 @click.option("--output_dir",default=None,help="Location to output the plots")
-@click.option("--replace",is_flag=True,help="Boolean whether to replace plot if it already exists")
+@click.option("--replace/--no-replace",is_flag=True,default=False,help="Boolean whether to replace plot if it already exists")
 def load_and_plot(files_and_kwargs,plot_type,num_cores_multiplier,parallel,variables,slice_dim,loc,slice_domain,length_scale,length_scale_label,output_dir,replace):
   #separate the files to analyze from the matplotlib kwargs
   files = [i for i in files_and_kwargs if os.path.exists(i)]

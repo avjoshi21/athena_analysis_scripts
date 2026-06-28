@@ -76,7 +76,8 @@ def extract_slice(xvs,xfs,hydro,slice_dim,loc,remain_coord_range=None,current=Fa
 def extract_domain(xvs, xfs, hydro, coord_range=None, current=False):
   """
   Extracts 3D meshblocks of cell-centered hydrodynamic variables within a specified
-  coordinate range from a 3D grid of meshblocks.
+  coordinate range from a 3D grid of meshblocks. 
+  Note it returns the entire meshblock if coord_range lies within it.
   
   Parameters
   ----------
@@ -121,11 +122,16 @@ def extract_domain(xvs, xfs, hydro, coord_range=None, current=False):
   
   domain_data = []
   domain_grid = []
+
+  # return the full domain without iteration
+  if coord_range==None:
+    domain_data = hydro.transpose(1,-1,-2,-3,0)
+    domain_grid = faces
+    return domain_data,domain_grid
   
   for i in range(Nmb):
-    # check if the meshblock overlaps with the coordinate range (or if no range specified)
-    if coord_range is None or \
-       (coord_range[0] <= faces[i, -1, 0] and coord_range[1] >= faces[i, 0, 0] and \
+    # check if the meshblock overlaps with the coordinate range
+    if (coord_range[0] <= faces[i, -1, 0] and coord_range[1] >= faces[i, 0, 0] and \
         coord_range[2] <= faces[i, -1, 1] and coord_range[3] >= faces[i, 0, 1] and \
         coord_range[4] <= faces[i, -1, 2] and coord_range[5] >= faces[i, 0, 2]):
       
@@ -232,12 +238,38 @@ def load_domain_and_variables(ath_file, variables, domain_kwargs={}):
           cs = domain_kwargs.get('cs', 0.05)
           rho_ind = var_list_full.index('rho')
           domain_data[..., ind] = cs**2 * domain_hydro[..., rho_ind] / (domain_data[..., ind] / 2)
+      # spherical radial velocity or accretion rate which is just rho * vr (spherical)
+      elif variable == 'velrsph' or variable == 'mdotr': 
+        # extract velocity components
+        vx_ind = var_list_full.index('vel1')
+        vy_ind = var_list_full.index('vel2')
+        vz_ind = var_list_full.index('vel3')
+        vx, vy, vz = domain_hydro[..., vx_ind], domain_hydro[..., vy_ind], domain_hydro[..., vz_ind]
+        
+        # compute cell-centered coords from faces: (Nmb, mb, 3) -> (Nmb, mb)
+        xc = 0.5 * (domain_grid[:, :-1, 0] + domain_grid[:, 1:, 0])
+        yc = 0.5 * (domain_grid[:, :-1, 1] + domain_grid[:, 1:, 1])
+        zc = 0.5 * (domain_grid[:, :-1, 2] + domain_grid[:, 1:, 2])
+        
+        # broadcast to 3D grid: (Nmb, mb, mb, mb)
+        x = xc[:, :, None, None]
+        y = yc[:, None, :, None]
+        z = zc[:, None, None, :]
+        
+        # spherical radial velocity: v_r = (v·r)/|r|
+        r_sph = np.sqrt(x**2 + y**2 + z**2)
+        vr_sph = (vx*x + vy*y + vz*z) / (r_sph + 1e-20)
+        domain_data[..., ind] = vr_sph
+        if variable == 'mdotr':
+          rho_ind = var_list_full.index('rho')
+          domain_data[...,ind] *= domain_hydro[...,rho_ind]
+
       else:
         print(f"processing {variable} has not yet been implemented! skipping")
       
       if log_flag:
         domain_data[..., ind] = np.log10(np.abs(domain_data[..., ind]))
-  
+        
   return domain_data, domain_grid, header
 
 def load_slice_and_variables(ath_file, variables, slice_kwargs):
@@ -335,9 +367,38 @@ def load_slice_and_variables(ath_file, variables, slice_kwargs):
           cs = slice_kwargs.get('cs', 0.05)
           rho_ind = var_list_full.index('rho')
           slice_data[..., ind] = cs**2 * slice_hydro[..., rho_ind] / (slice_data[..., ind] / 2)
+      # spherical radial velocity or accretion rate which is just rho * vr (spherical)
+      elif variable == 'velrsph' or variable == 'mdotr': 
+        # extract velocity components
+        vx_ind = var_list_full.index('vel1')
+        vy_ind = var_list_full.index('vel2')
+        vz_ind = var_list_full.index('vel3')
+        vx, vy, vz = slice_hydro[..., vx_ind], slice_hydro[..., vy_ind], slice_hydro[..., vz_ind]
+        
+        # compute cell-centered coords from faces: (Nmb, mb+1, 2) -> (Nmb, mb)
+        slcdim_1_centers = 0.5 * (slice_grid[:, :-1, 0] + slice_grid[:, 1:, 0])
+        slcdim_2_centers = 0.5 * (slice_grid[:, :-1, 1] + slice_grid[:, 1:, 1])
+        fixdim_centers = slice_kwargs['loc']
+        
+        # broadcast to 2D slice: (Nmb, mb, mb)
+        slcdim_1 = slcdim_1_centers[:, :, None]
+        slcdim_2 = slcdim_2_centers[:, None, :]
+        fixdim = fixdim_centers
+        
+        # spherical radial velocity: v_r = (v·r)/|r|
+        r_sph = np.sqrt(slcdim_1**2 + slcdim_2**2 + fixdim**2)
+        if slice_kwargs['slice_dim']==0:
+          vr_sph = (vx*fixdim + vy*slcdim_1 + vz*slcdim_2) / (r_sph + 1e-20)
+        elif slice_kwargs['slice_dim']==1:
+          vr_sph = (vx*slcdim_1 + vy*fixdim + vz*slcdim_2) / (r_sph + 1e-20)
+        elif slice_kwargs['slice_dim']==2:
+          vr_sph = (vx*slcdim_1 + vy*slcdim_2 + vz*fixdim) / (r_sph + 1e-20)
+        slice_data[..., ind] = vr_sph
+        if variable == 'mdotr':
+          rho_ind = var_list_full.index('rho')
+          slice_data[...,ind] *= slice_hydro[...,rho_ind]
       else:
         print(f"processing {variable} has not yet been implemented! skipping")
-      
       # Apply log if requested
       if log_flag:
         slice_data[..., ind] = np.log10(np.abs(slice_data[..., ind]))
@@ -410,13 +471,12 @@ def compute_cylindrical_coords(grid_data, slice_kwargs=None):
     R_grid = np.zeros((Nmb, mb, mb, mb), dtype=np.float32)
     phi_grid = np.zeros((Nmb, mb, mb, mb), dtype=np.float32)
     
-    for i in range(Nmb):
-      x1_centers = 0.5 * (xfs[i, :-1, 0] + xfs[i, 1:, 0])
-      x2_centers = 0.5 * (xfs[i, :-1, 1] + xfs[i, 1:, 1])
-      x3_centers = 0.5 * (xfs[i, :-1, 2] + xfs[i, 1:, 2])
-      x, y, z = np.meshgrid(x1_centers, x2_centers, x3_centers, indexing='ij')
-      R_grid[i] = np.sqrt(x**2 + y**2)
-      phi_grid[i] = np.arctan2(y, x)
+    x1_centers = 0.5 * (xfs[:, :-1, 0] + xfs[:, 1:, 0])
+    x2_centers = 0.5 * (xfs[:, :-1, 1] + xfs[:, 1:, 1])
+    x = x1_centers[:,:,None,None]
+    y = x2_centers[:,None,:,None]
+    R_grid = np.sqrt(x**2 + y**2)
+    phi_grid = np.arctan2(y, x)
     
     return R_grid, phi_grid
 
@@ -563,6 +623,173 @@ def compute_equatorial_radial_profile(xfs, field, zmax, Rbins, weights="volume",
             std[n] = np.sqrt(np.sum(wbin * (qbin - qmean)**2) / np.sum(wbin))  # Weighted std
     
     return (profile, Rcent, std) if return_std else (profile,Rcent)
+
+# def compute_origin_centered_profile(xfs, fields, bins, grid_type="spherical", coord_range=None):
+#   """
+#   Accumulate mass-weighted quantities in bins centered at origin.
+  
+#   Parameters
+#   ----------
+#   xfs : list of np.ndarray
+#     Face-centered coordinates [x1f, x2f, x3f], shape (Nmb, mb+1).
+#   fields : np.ndarray
+#     Cell-centered data with rho as first field, shape (Nmb, mb, mb, mb, Nfields).
+#   bins : np.ndarray or tuple
+#     For "spherical": 1D radial bin edges.
+#     For "cylindrical": (R_bins, z_bins).
+#     For "spherical_polar": (R_bins, theta_bins) where theta in [0, pi].
+#   grid_type : str
+#     "spherical" (1D R), "cylindrical" (2D R,z), or "spherical_polar" (2D R,theta).
+#   coord_range : list or None
+#     Optional [xmin, xmax, ymin, ymax, zmin, zmax] to restrict domain.
+  
+#   Returns
+#   -------
+#   mass_accum : np.ndarray
+#     Accumulated mass in each bin.
+#   quantity_accum : np.ndarray
+#     Accumulated ρ*q*dV for each field (excluding rho), shape matches bins.
+#   bin_centers : dict
+#     Dictionary with 'R' and 'z' or 'theta' depending on grid_type.
+#   """
+#   if grid_type not in ["spherical", "cylindrical", "spherical_polar"]:
+#     raise ValueError(f"grid_type must be 'spherical', 'cylindrical', or 'spherical_polar'")
+  
+#   xf, yf, zf = xfs
+#   xv = 0.5 * (xf[:, :-1] + xf[:, 1:])
+#   yv = 0.5 * (yf[:, :-1] + yf[:, 1:])
+#   zv = 0.5 * (zf[:, :-1] + zf[:, 1:])
+#   Nmb, Nfields = fields.shape[0], fields.shape[-1]
+  
+#   # setup bins based on grid type
+#   if grid_type == "spherical":
+#     Rbins = bins
+#     Rcent = 0.5 * (Rbins[1:] + Rbins[:-1])
+#     Nbins = len(Rcent)
+#     mass_accum = np.zeros(Nbins)
+#     quantity_accum = np.zeros((Nbins, Nfields - 1))
+#     bin_centers = {'R': Rcent}
+#   elif grid_type == "cylindrical":
+#     Rbins, zbins = bins
+#     Rcent = 0.5 * (Rbins[1:] + Rbins[:-1])
+#     zcent = 0.5 * (zbins[1:] + zbins[:-1])
+#     Nbins = (len(Rcent), len(zcent))
+#     mass_accum = np.zeros(Nbins)
+#     quantity_accum = np.zeros((*Nbins, Nfields - 1))
+#     bin_centers = {'R': Rcent, 'z': zcent}
+#   else:  # spherical_polar
+#     Rbins, theta_bins = bins
+#     Rcent = 0.5 * (Rbins[1:] + Rbins[:-1])
+#     theta_cent = 0.5 * (theta_bins[1:] + theta_bins[:-1])
+#     Nbins = (len(Rcent), len(theta_cent))
+#     mass_accum = np.zeros(Nbins)
+#     quantity_accum = np.zeros((*Nbins, Nfields - 1))
+#     bin_centers = {'R': Rcent, 'theta': theta_cent}
+  
+#   # accumulate over meshblocks
+#   for m in range(Nmb):
+#     # check domain restriction
+#     if coord_range is not None:
+#       xmin, xmax, ymin, ymax, zmin, zmax = coord_range
+#       if not ((xf[m, -1] >= xmin and xf[m, 0] <= xmax) and
+#               (yf[m, -1] >= ymin and yf[m, 0] <= ymax) and
+#               (zf[m, -1] >= zmin and zf[m, 0] <= zmax)):
+#         continue
+    
+#     # compute 3D coordinate grids
+#     Z_3d, Y_3d, X_3d = np.meshgrid(zv[m], yv[m], xv[m], indexing='ij')
+    
+#     if grid_type == "cylindrical":
+#       R_3d = np.sqrt(X_3d**2 + Y_3d**2)
+#       coord2_3d = Z_3d
+#       bins1, bins2 = Rbins, zbins
+#       N1, N2 = len(Rcent), len(zcent)
+#     else:  # spherical or spherical_polar
+#       R_3d = np.sqrt(X_3d**2 + Y_3d**2 + Z_3d**2)
+#       if grid_type == "spherical_polar":
+#         coord2_3d = np.arccos(np.clip(Z_3d / (R_3d + 1e-20), -1, 1))  # theta
+#         bins1, bins2 = Rbins, theta_bins
+#         N1, N2 = len(Rcent), len(theta_cent)
+    
+#     # compute cell volumes
+#     dx, dy, dz = np.diff(xf[m]), np.diff(yf[m]), np.diff(zf[m])
+#     dV = dz[:, None, None] * dy[None, :, None] * dx[None, None, :]
+    
+#     # extract density and compute mass elements
+#     rho = fields[m, ..., 0]
+#     dm = rho * dV
+    
+#     # bin cells
+#     if grid_type == "spherical":
+#       for n in range(len(Rcent)):
+#         mask = (R_3d >= Rbins[n]) & (R_3d < Rbins[n + 1])
+#         if not np.any(mask):
+#           continue
+#         mass_accum[n] += np.sum(dm[mask])
+#         for f in range(1, Nfields):
+#           quantity_accum[n, f - 1] += np.sum(dm[mask] * fields[m, ..., f][mask])
+#     else:  # cylindrical or spherical_polar
+#       for n1 in range(N1):
+#         for n2 in range(N2):
+#           mask = ((R_3d >= bins1[n1]) & (R_3d < bins1[n1 + 1]) &
+#                   (coord2_3d >= bins2[n2]) & (coord2_3d < bins2[n2 + 1]))
+#           if not np.any(mask):
+#             continue
+#           mass_accum[n1, n2] += np.sum(dm[mask])
+#           for f in range(1, Nfields):
+#             quantity_accum[n1, n2, f - 1] += np.sum(dm[mask] * fields[m, ..., f][mask])
+  
+#   return mass_accum, quantity_accum, bin_centers
+
+def compute_spherical_integral(xfs, field, radius, weights="volume", coord_range=None):
+  """
+  Compute integral of a field within a sphere of given radius from origin.
+  
+  Parameters
+  ----------
+  xfs : list of np.ndarray
+    Face-centered coordinates [x1f, x2f, x3f], shape (Nmb, mb+1).
+  field : np.ndarray
+    Scalar field to integrate, shape (Nmb, mb, mb, mb).
+  radius : float
+    Sphere radius for integration region.
+  weights : str
+    Integration weights: "volume" (volume-weighted) or "uniform" (count).
+  coord_range : list or None
+    Optional spatial restriction [xmin, xmax, ymin, ymax, zmin, zmax].
+  
+  Returns
+  -------
+  integral : float
+    Integrated quantity within the sphere.
+  """
+  if weights not in ["volume", "uniform"]:
+    raise ValueError(f"Unknown weighting method: {weights}")
+  
+  xf, yf, zf = xfs
+  xv = 0.5*(xf[:,:-1]+xf[:,1:])
+  yv = 0.5*(yf[:,:-1]+yf[:,1:])
+  zv = 0.5*(zf[:,:-1]+zf[:,1:])
+  
+  integral = 0.0
+  
+  X_3d = xv[:,:,None,None]
+  Y_3d = yv[:,None,:,None]
+  Z_3d = zv[:,None,None,:]
+  R_3d = np.sqrt(X_3d**2 + Y_3d**2 + Z_3d**2)
+  sphere_mask = R_3d <= radius
+  
+  # Compute weights: volume-weighted or uniform
+  if weights == "volume":
+    dx, dy, dz = np.diff(xf,axis=-1), np.diff(yf,axis=-1), np.diff(zf,axis=-1)
+    w = dz[:,:,None,None] * dy[:,None,:,None] * dx[:,None,None,:]
+  else:  # uniform
+    w = np.ones_like(field)
+  
+  # Accumulate integral
+  integral += np.sum(field[sphere_mask] * w[sphere_mask])
+  
+  return integral
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

@@ -1,5 +1,9 @@
 # utility functions for jet injection calculations.
 import numpy as np
+import athena_util_functions as athutil
+import h5py
+# import sys,os
+# sys.path.insert(0,"")
 
 def compute_injected_power_estimate(gamma, Bi, rho, rc, vel0, r0, rho0):
   """
@@ -137,3 +141,47 @@ def compute_total_divB(xfs, divB, coord_system="cartesian"):
         dV = dx3[:,None,None] * dx2[None,:,None] * dx1[None,None,:]  # Cell volumes
         total += np.sum(divB[m] * dV)
     return total
+
+def compute_mass_within_radius(ath_file, radius, coord_range=None):
+  """
+  Compute total fluid mass within a sphere of given radius.
+  
+  Parameters
+  ----------
+  ath_file : str
+    Path to Athena++ HDF5 output file.
+  radius : float
+    Sphere radius for mass computation.
+  coord_range : list or None
+    Optional spatial restriction [xmin, xmax, ymin, ymax, zmin, zmax].
+  
+  Returns
+  -------
+  mass : float
+    Total mass within the specified radius.
+  """
+  with h5py.File(ath_file) as hfp:
+    hydro = hfp['hydro']
+    xvs = np.array([hfp['x1v'][:], hfp['x2v'][:], hfp['x3v'][:]])
+    xfs = np.array([hfp['x1f'][:], hfp['x2f'][:], hfp['x3f'][:]])
+    
+    header = {i: hfp.attrs[i] for i in hfp.attrs.keys()}
+    header['VariableNames'] = [i.decode('utf-8') for i in header['VariableNames']]
+    
+    # Extract domain
+    domain_kwargs = {'coord_range': coord_range, 'current': False}
+    domain_hydro, domain_grid = athutil.extract_domain(xvs, xfs, hydro, **domain_kwargs)
+    
+    # Convert domain_grid to xfs format
+    xfs_domain = [domain_grid[..., 0], domain_grid[..., 1], domain_grid[..., 2]]
+    
+    # Get density field
+    var_list = header['VariableNames']
+    rho_ind = var_list.index('rho')
+    rho_field = domain_hydro[..., rho_ind]
+    
+    # Compute mass integral
+    mass = athutil.compute_spherical_integral(xfs_domain, rho_field, radius, 
+                                      weights="volume", coord_range=coord_range)
+  
+  return mass
