@@ -125,7 +125,7 @@ def extract_domain(xvs, xfs, hydro, coord_range=None, current=False):
 
   # return the full domain without iteration
   if coord_range==None:
-    domain_data = hydro.transpose(1,-1,-2,-3,0)
+    domain_data = np.asarray(hydro).transpose(1,-1,-2,-3,0)
     domain_grid = faces
     return domain_data,domain_grid
   

@@ -1,5 +1,5 @@
 """
-Method 2 (binning) axisymmetric profiles for Cartesian Athena++ (SMR) data.
+Axisymmetric profiles for Cartesian Athena++ (SMR) data.
 
 Builds on athena_util_functions.load_domain_and_variables, which returns
   domain_data : (Nmb, mb, mb, mb, Nvar)   spatial axes ordered (x1, x2, x3) = (x, y, z)
@@ -19,9 +19,7 @@ These are intended to live alongside / be pasted into athena_util_functions.py.
 import numpy as np
 
 
-# ----------------------------------------------------------------------------
 # internals
-# ----------------------------------------------------------------------------
 def _cell_centers_and_dV(domain_grid):
   """From face coords (Nmb, mb+1, 3) return broadcast cell centers and dV.
 
@@ -68,9 +66,7 @@ def _weights(dV, rho, weight):
     raise ValueError("weight must be 'volume', 'mass', or 'uniform'")
 
 
-# ----------------------------------------------------------------------------
 # 1D profile
-# ----------------------------------------------------------------------------
 def accumulate_profile(domain_grid, field, bin_edges, coord='spherical',
                        weight='volume', reduction='mean', rho=None,
                        zmax=None, return_extras=False):
@@ -148,9 +144,7 @@ def accumulate_profile(domain_grid, field, bin_edges, coord='spherical',
   return profile, centers, extras
 
 
-# ----------------------------------------------------------------------------
 # 2D poloidal map  (r, theta) or (R, z)
-# ----------------------------------------------------------------------------
 def accumulate_poloidal_map(domain_grid, field, edges1, edges2,
                             grid_type='spherical_polar', weight='volume',
                             reduction='mean', rho=None, eps=1e-30):
@@ -207,9 +201,7 @@ def accumulate_poloidal_map(domain_grid, field, edges1, edges2,
   return out, c1c, c2c
 
 
-# ----------------------------------------------------------------------------
 # thin wrappers
-# ----------------------------------------------------------------------------
 def compute_mdot_profile(ath_file, bin_edges, coord_range=None, return_extras=False):
   """Spherical accretion-rate profile  Mdot(r) = -closed_int rho v_r dA.
 
